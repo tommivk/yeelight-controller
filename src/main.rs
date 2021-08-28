@@ -68,7 +68,7 @@ fn main() {
 
     let parsed_response: HashMap<&str, &str> = parse_response(&response.unwrap());
 
-    let new_bulb: Bulb = parse_values(parsed_response);
+    let new_bulb: Bulb = create_new_bulb(parsed_response);
 
     bulbs.push(new_bulb);
 
@@ -135,7 +135,7 @@ fn parse_line(message: &str) -> Option<(&str, &str)> {
     Some((m[0].trim(), m[1].trim()))
 }
 
-fn parse_values(data: HashMap<&str, &str>) -> Bulb {
+fn create_new_bulb(data: HashMap<&str, &str>) -> Bulb {
     let mut new_bulb = Bulb::new_bulb();
 
     for (key, value) in data.into_iter() {
