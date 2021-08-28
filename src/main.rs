@@ -58,7 +58,7 @@ fn main() {
 
     let mut buf = [0; 2000];
 
-    let message: Result<&str, Box<dyn Error>> = match socket.recv(&mut buf) {
+    let response: Result<&str, Box<dyn Error>> = match socket.recv(&mut buf) {
         Ok(received) => match str::from_utf8(&mut buf[..received]) {
             Ok(m) => Ok(m),
             Err(e) => Err(Box::new(e)),
@@ -66,9 +66,9 @@ fn main() {
         Err(e) => Err(Box::new(e)),
     };
 
-    let parsed_data: HashMap<&str, &str> = parse_response(&message.unwrap());
+    let parsed_response: HashMap<&str, &str> = parse_response(&response.unwrap());
 
-    let new_bulb: Bulb = parse_values(parsed_data);
+    let new_bulb: Bulb = parse_values(parsed_response);
 
     bulbs.push(new_bulb);
 
