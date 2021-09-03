@@ -1,3 +1,5 @@
+mod bulb;
+use bulb::Bulb;
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::TcpStream;
@@ -6,42 +8,6 @@ use tokio::net::UdpSocket;
 use tokio::time::{self, Duration};
 
 const MULTI_CAST_ADRESS: &str = "239.255.255.250:1982";
-
-struct Bulb {
-    location: String,
-    id: String,
-    power: String,
-    bright: String,
-    color_mode: String,
-    rgb: String,
-    ct: String,
-    hue: String,
-    sat: String,
-    name: String,
-}
-
-impl Bulb {
-    fn get_id(&self) -> &String {
-        &self.id
-    }
-    fn get_location(&self) -> &String {
-        &self.location
-    }
-    fn new_bulb() -> Bulb {
-        Bulb {
-            location: String::new(),
-            id: String::new(),
-            power: String::new(),
-            bright: String::new(),
-            color_mode: String::new(),
-            rgb: String::new(),
-            ct: String::new(),
-            hue: String::new(),
-            sat: String::new(),
-            name: String::new(),
-        }
-    }
-}
 
 #[tokio::main]
 async fn main() {
