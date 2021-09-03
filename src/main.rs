@@ -1,8 +1,9 @@
 use std::collections::HashMap;
-use std::error::Error;
 use std::io::{Read, Write};
-use std::net::{TcpStream, UdpSocket};
+use std::net::TcpStream;
 use std::str::{self};
+use tokio::net::UdpSocket;
+use tokio::time::{self, Duration};
 
 const MULTI_CAST_ADRESS: &str = "239.255.255.250:1982";
 
@@ -42,65 +43,126 @@ impl Bulb {
     }
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let mut bulbs: Vec<Bulb> = Vec::new();
-
-    let socket = UdpSocket::bind("0.0.0.0:3480").expect("Failed to bind adress");
 
     let msg = b"M-SEARCH * HTTP/1.1\r\n
     HOST: 239.255.255.250:1982\r\n
     MAN: \"ssdp:discover\"\r\n
     ST: wifi_bulb";
 
-    socket
-        .send_to(msg, MULTI_CAST_ADRESS)
-        .expect("Failed to send message to multicast address");
+    let mut socket = UdpSocket::bind("0.0.0.0:3480").await.unwrap();
+    socket.send_to(msg, MULTI_CAST_ADRESS).await.unwrap();
 
-    let mut buf = [0; 2000];
+    let mut responses: Vec<String> = Vec::new();
 
-    let response: Result<&str, Box<dyn Error>> = match socket.recv(&mut buf) {
-        Ok(received) => match str::from_utf8(&mut buf[..received]) {
-            Ok(m) => Ok(m),
-            Err(e) => Err(Box::new(e)),
-        },
-        Err(e) => Err(Box::new(e)),
-    };
+    loop {
+        let mut buf = [0; 2000];
 
-    let parsed_response: HashMap<&str, &str> = parse_response(&response.unwrap());
+        let valid_bytes = match time::timeout(Duration::from_secs(2), socket.recv(&mut buf)).await {
+            Ok(v) => match v {
+                Ok(v) => Ok(v),
+                Err(e) => Err(e),
+            },
+            Err(_) => break,
+        };
 
-    let new_bulb: Bulb = create_new_bulb(parsed_response);
+        let bytes = match valid_bytes {
+            Ok(b) => b,
+            Err(_) => break,
+        };
 
-    bulbs.push(new_bulb);
+        let data = &buf[..bytes];
 
-    let address = bulbs[0].get_location();
+        match str::from_utf8(data) {
+            Ok(d) => responses.push(d.to_owned()),
+            _ => (),
+        };
+    }
 
-    let mut stream = TcpStream::connect(&address).unwrap();
+    println!("{}", responses.len());
 
-    let msg = format!(
-        "{{\"id\":{},\"method\":\"{}\",\"params\":[\"{}\"]}}\r\n",
-        0, "set_power", "off"
-    );
+    if responses.len() == 0 {
+        panic!("No bulbs found")
+    }
 
-    match stream.write(msg.as_bytes()) {
-        Ok(_) => {
-            print!("Message sent: {}", msg);
-            stream.flush().unwrap();
+    for m in responses.into_iter() {
+        let parsed_response: HashMap<&str, &str> = parse_response(&m);
+        let new_bulb: Bulb = create_new_bulb(parsed_response);
+
+        let mut duplicate: bool = false;
+
+        for b in &bulbs {
+            if b.id == new_bulb.id {
+                duplicate = true;
+            }
         }
-        Err(_) => {
-            println!("Failed to send message");
-            return;
+
+        if !duplicate {
+            bulbs.push(new_bulb);
         }
     }
 
-    let mut buf = [0; 2000];
+    println!("Bulbs found: ");
+    for (i, b) in bulbs.iter().enumerate() {
+        println!("{}: id: {}", i, b.id);
+    }
 
-    match stream.read(&mut buf) {
-        Ok(_) => {
-            print!("Response: {}", str::from_utf8(&buf).unwrap());
-            stream.flush().unwrap();
+    loop {
+        println!("Bulb number: ");
+
+        let mut input = String::new();
+
+        std::io::stdin()
+            .read_line(&mut input)
+            .expect("failed to read line");
+
+        let bulb_number = match input.trim().parse::<u8>() {
+            Ok(num) => {
+                if num as usize > bulbs.len() - 1 {
+                    println!("Invalid bulb number");
+                    continue;
+                } else {
+                    num
+                }
+            }
+            Err(_) => {
+                println!("Invalid number");
+                continue;
+            }
+        };
+
+        let address = bulbs[bulb_number as usize].get_location();
+
+        let mut stream = TcpStream::connect(&address).unwrap();
+
+        let msg = format!(
+            "{{\"id\":{},\"method\":\"{}\",\"params\":[\"{}\"]}}\r\n",
+            0, "set_power", "off"
+        );
+
+        match stream.write(msg.as_bytes()) {
+            Ok(_) => {
+                print!("Message sent: {}", msg);
+                stream.flush().unwrap();
+            }
+            Err(_) => {
+                println!("Failed to send message");
+                return;
+            }
         }
-        Err(_) => {
-            println!("Failed to read response");
+
+        let mut buf = [0; 2000];
+
+        match stream.read(&mut buf) {
+            Ok(_) => {
+                print!("Response: {}", str::from_utf8(&buf).unwrap());
+                stream.flush().unwrap();
+            }
+            Err(_) => {
+                println!("Failed to read response");
+            }
         }
     }
 }
