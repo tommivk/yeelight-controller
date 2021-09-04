@@ -11,70 +11,14 @@ const MULTI_CAST_ADRESS: &str = "239.255.255.250:1982";
 
 #[tokio::main]
 async fn main() {
-    let mut bulbs: Vec<Bulb> = Vec::new();
+    let socket = UdpSocket::bind("0.0.0.0:3480").await.unwrap();
 
-    let msg = b"M-SEARCH * HTTP/1.1\r\n
-    HOST: 239.255.255.250:1982\r\n
-    MAN: \"ssdp:discover\"\r\n
-    ST: wifi_bulb";
+    let bulbs: Vec<Bulb> = get_bulbs(socket).await;
 
-    let mut socket = UdpSocket::bind("0.0.0.0:3480").await.unwrap();
-    socket.send_to(msg, MULTI_CAST_ADRESS).await.unwrap();
+    start_app(bulbs);
+}
 
-    let mut responses: Vec<String> = Vec::new();
-
-    loop {
-        let mut buf = [0; 2000];
-
-        let valid_bytes = match time::timeout(Duration::from_secs(2), socket.recv(&mut buf)).await {
-            Ok(v) => match v {
-                Ok(v) => Ok(v),
-                Err(e) => Err(e),
-            },
-            Err(_) => break,
-        };
-
-        let bytes = match valid_bytes {
-            Ok(b) => b,
-            Err(_) => break,
-        };
-
-        let data = &buf[..bytes];
-
-        match str::from_utf8(data) {
-            Ok(d) => responses.push(d.to_owned()),
-            _ => (),
-        };
-    }
-
-    println!("{}", responses.len());
-
-    if responses.len() == 0 {
-        panic!("No bulbs found")
-    }
-
-    for m in responses.into_iter() {
-        let parsed_response: HashMap<&str, &str> = parse_response(&m);
-        let new_bulb: Bulb = create_new_bulb(parsed_response);
-
-        let mut duplicate: bool = false;
-
-        for b in &bulbs {
-            if b.id == new_bulb.id {
-                duplicate = true;
-            }
-        }
-
-        if !duplicate {
-            bulbs.push(new_bulb);
-        }
-    }
-
-    println!("Bulbs found: ");
-    for (i, b) in bulbs.iter().enumerate() {
-        println!("{}: id: {}", i, b.id);
-    }
-
+fn start_app(bulbs: Vec<Bulb>) {
     loop {
         println!("Bulb number: ");
 
@@ -133,6 +77,72 @@ async fn main() {
     }
 }
 
+async fn get_bulbs(mut socket: UdpSocket) -> Vec<Bulb> {
+    let mut bulbs: Vec<Bulb> = Vec::new();
+    let mut responses: Vec<String> = Vec::new();
+
+    let msg = b"M-SEARCH * HTTP/1.1\r\n
+    HOST: 239.255.255.250:1982\r\n
+    MAN: \"ssdp:discover\"\r\n
+    ST: wifi_bulb";
+
+    socket.send_to(msg, MULTI_CAST_ADRESS).await.unwrap();
+
+    loop {
+        let mut buf = [0; 2000];
+
+        let valid_bytes = match time::timeout(Duration::from_secs(2), socket.recv(&mut buf)).await {
+            Ok(v) => match v {
+                Ok(v) => Ok(v),
+                Err(e) => Err(e),
+            },
+            Err(_) => break,
+        };
+
+        let bytes = match valid_bytes {
+            Ok(b) => b,
+            Err(_) => break,
+        };
+
+        let data = &buf[..bytes];
+
+        match str::from_utf8(data) {
+            Ok(d) => responses.push(d.to_owned()),
+            _ => (),
+        };
+    }
+
+    println!("{}", responses.len());
+
+    if responses.len() == 0 {
+        panic!("No bulbs found")
+    }
+
+    for m in responses.into_iter() {
+        let parsed_response: HashMap<&str, &str> = parse_response(&m);
+        let new_bulb: Bulb = create_new_bulb(parsed_response);
+
+        let mut duplicate: bool = false;
+
+        for b in &bulbs {
+            if b.id == new_bulb.id {
+                duplicate = true;
+            }
+        }
+
+        if !duplicate {
+            bulbs.push(new_bulb);
+        }
+    }
+
+    println!("Bulbs found: ");
+    for (i, b) in bulbs.iter().enumerate() {
+        println!("{}: id: {}", i, b.id);
+    }
+
+    bulbs
+}
+
 fn parse_response(message: &str) -> HashMap<&str, &str> {
     let mut lines = message.lines();
     let mut data: HashMap<&str, &str> = HashMap::new();
@@ -188,7 +198,3 @@ fn create_new_bulb(data: HashMap<&str, &str>) -> Bulb {
 
     new_bulb
 }
-
-//support: get_prop set_default set_power toggle set_bright start_cf stop_cf
-//set_scene cron_add cron_get cron_del set_ct_abx set_rgb set_hsv set_adjust
-//adjust_bright adjust_ct adjust_color set_music set_name
