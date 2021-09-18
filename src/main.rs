@@ -1,9 +1,13 @@
 mod bulb;
 use bulb::Bulb;
+use gtk::prelude::*;
+use gtk::{Application, ApplicationWindow, Box, Button, Orientation};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::str::{self};
+use std::sync::Arc;
+use std::sync::RwLock;
 use tokio::net::UdpSocket;
 use tokio::time::{self, Duration};
 
@@ -19,60 +23,83 @@ async fn main() {
 }
 
 fn start_app(bulbs: Vec<Bulb>) {
-    loop {
-        println!("Bulb number: ");
+    let application = Application::builder()
+        .application_id("tommivk.yeelightController")
+        .build();
 
-        let mut input = String::new();
+    application.connect_activate(move |app| {
+        let bulbs = Arc::new(RwLock::new(bulbs.to_owned()));
 
-        std::io::stdin()
-            .read_line(&mut input)
-            .expect("failed to read line");
+        let window = ApplicationWindow::builder()
+            .application(app)
+            .title("Yeelight Controller")
+            .default_width(350)
+            .default_height(70)
+            .build();
 
-        let bulb_number = match input.trim().parse::<u8>() {
-            Ok(num) => {
-                if num as usize > bulbs.len() - 1 {
-                    println!("Invalid bulb number");
-                    continue;
-                } else {
-                    num
-                }
+        let off_button = Button::with_label("turn off");
+
+        off_button.connect_clicked({
+            let bulbs = Arc::clone(&bulbs);
+
+            move |_| {
+                let bulbs = bulbs.read().unwrap();
+                send_command(&bulbs[0].location, "set_power", "off")
             }
-            Err(_) => {
-                println!("Invalid number");
-                continue;
+        });
+
+        let on_button = Button::with_label("turn on");
+
+        on_button.connect_clicked({
+            let bulbs = Arc::clone(&bulbs);
+
+            move |_| {
+                let bulbs = bulbs.read().unwrap();
+                send_command(&bulbs[0].location, "set_power", "on")
             }
-        };
+        });
 
-        let address = bulbs[bulb_number as usize].get_location();
+        let button_row = Box::new(Orientation::Horizontal, 2);
 
-        let mut stream = TcpStream::connect(&address).unwrap();
+        button_row.pack_start(&on_button, true, true, 2);
+        button_row.pack_start(&off_button, true, true, 2);
 
-        let msg = format!(
-            "{{\"id\":{},\"method\":\"{}\",\"params\":[\"{}\"]}}\r\n",
-            0, "set_power", "off"
-        );
+        window.add(&button_row);
 
-        match stream.write(msg.as_bytes()) {
-            Ok(_) => {
-                print!("Message sent: {}", msg);
-                stream.flush().unwrap();
-            }
-            Err(_) => {
-                println!("Failed to send message");
-                return;
-            }
+        window.show_all();
+    });
+
+    application.run();
+}
+
+fn send_command(address: &str, method: &str, params: &str) {
+    let mut stream = TcpStream::connect(&address).unwrap();
+
+    let msg = format!(
+        "{{\"id\":{},\"method\":\"{}\",\"params\":[\"{}\"]}}\r\n",
+        0, method, params
+    );
+
+    match stream.write(msg.as_bytes()) {
+        Ok(_) => {
+            print!("Message sent: {}", msg);
+            stream.flush().unwrap();
         }
+        Err(_) => {
+            println!("Failed to send message");
+            return;
+        }
+    }
 
-        let mut buf = [0; 2000];
+    let mut buf = [0; 2000];
 
-        match stream.read(&mut buf) {
-            Ok(_) => {
-                print!("Response: {}", str::from_utf8(&buf).unwrap());
-                stream.flush().unwrap();
-            }
-            Err(_) => {
-                println!("Failed to read response");
-            }
+    match stream.read(&mut buf) {
+        Ok(_) => {
+            print!("Response: {}", str::from_utf8(&buf).unwrap());
+            stream.flush().unwrap();
+        }
+        Err(_) => {
+            println!("Failed to read response");
         }
     }
 }
