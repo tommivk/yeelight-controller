@@ -1,7 +1,7 @@
 mod bulb;
 use bulb::Bulb;
 use gtk::prelude::*;
-use gtk::{Application, ApplicationWindow, Box, Button, ColorButton, Label, Orientation};
+use gtk::{Application, ApplicationWindow, Box, Button, Orientation};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::TcpStream;
@@ -30,6 +30,7 @@ fn start_app(bulbs: Vec<Bulb>) {
     application.connect_activate(move |app| {
         let bulbs = Arc::new(RwLock::new(bulbs.to_owned()));
         let active_bulb = Arc::new(RwLock::new(bulbs.read().unwrap()[0].clone()));
+        let bulb_id_buttons = Arc::new(RwLock::new(Vec::<Button>::new()));
         let window = ApplicationWindow::builder()
             .application(app)
             .title("Yeelight Controller")
@@ -39,27 +40,39 @@ fn start_app(bulbs: Vec<Bulb>) {
 
         let button_row = Box::new(Orientation::Vertical, 3);
 
-        let data = bulbs.read().unwrap();
-        for bulb in data.to_owned().into_iter() {
+        for bulb in bulbs.read().unwrap().to_owned().into_iter() {
             let active = &active_bulb.read().unwrap().location.to_owned();
 
             let label = if &bulb.location == active {
-                format!("{}{}", &bulb.id, "(Active)")
+                format!("{}{}", &bulb.id, " (Selected)")
             } else {
                 bulb.id.to_string()
             };
 
             let id_button = Button::with_label(&label);
 
+            bulb_id_buttons.write().unwrap().push(id_button.clone());
+
             id_button.connect_clicked({
                 println!("{:?}", &bulb);
                 let active_bulb = Arc::clone(&active_bulb);
+                let id_button = id_button.clone();
+                let bulb_id_buttons = Arc::clone(&bulb_id_buttons);
                 move |_| {
                     *active_bulb.write().unwrap() = bulb.clone();
+
+                    for bulb in bulb_id_buttons.read().unwrap().to_owned().into_iter() {
+                        let label = bulb.label().unwrap().to_string().replace(" (Selected)", "");
+                        Button::set_label(&bulb, &label);
+                    }
+
+                    let label = format!("{}{}", &bulb.id, " (Selected)");
+                    Button::set_label(&id_button, &label);
                 }
             });
             button_row.pack_start(&id_button, false, false, 2);
         }
+
         window.add(&button_row);
 
         let off_button = Button::with_label("Off");
