@@ -1,7 +1,9 @@
 mod bulb;
 use bulb::Bulb;
-use gtk::prelude::*;
-use gtk::{Application, ApplicationWindow, Box, Button, ColorChooserWidgetBuilder, Orientation};
+use gtk::{prelude::*, Adjustment, Label};
+use gtk::{
+    Application, ApplicationWindow, Box, Button, ColorChooserWidgetBuilder, Orientation, Scale,
+};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::TcpStream;
@@ -98,23 +100,93 @@ fn start_app(bulbs: Vec<Bulb>) {
         button_row.pack_start(&on_button, true, true, 2);
         button_row.pack_start(&off_button, true, true, 2);
 
-        let color_picker = ColorChooserWidgetBuilder::new().show_editor(true).build();
-        color_picker.connect_rgba_notify(move |picker| {
-            let rgba = picker.rgba();
+        let color_picker = ColorChooserWidgetBuilder::new()
+            .show_editor(true)
+            .use_alpha(false)
+            .margin_bottom(20)
+            .margin_top(20)
+            .build();
 
-            let red = (255.0 * rgba.red).round() as i32;
-            let green = (255.0 * rgba.green).round() as i32;
-            let blue = (255.0 * rgba.blue).round() as i32;
+        color_picker.connect_rgba_notify({
+            let active_bulb = Arc::clone(&active_bulb);
+            move |picker| {
+                let rgba = picker.rgba();
 
-            let color_value = (red * 65536) + (green * 256) + blue;
+                let red = (255.0 * rgba.red).round() as i32;
+                let green = (255.0 * rgba.green).round() as i32;
+                let blue = (255.0 * rgba.blue).round() as i32;
 
-            send_command(
-                &active_bulb.read().unwrap().location,
-                "set_rgb",
-                &format!("{}", color_value),
-            )
+                let color_value = (red * 65536) + (green * 256) + blue;
+
+                send_command(
+                    &active_bulb.read().unwrap().location,
+                    "set_rgb",
+                    &format!("{}", color_value),
+                )
+            }
         });
+
         button_row.pack_start(&color_picker, true, true, 3);
+
+        let brightness_slider = Scale::new(
+            Orientation::Horizontal,
+            Some(&Adjustment::new(100.0, 1.0, 100.0, 1.0, 0.0, 0.0)),
+        );
+
+        brightness_slider.connect_change_value({
+            let active_bulb = Arc::clone(&active_bulb);
+            move |_s, _t, value| {
+                let mut value = value.round() as i32;
+
+                if value > 100 {
+                    value = 100
+                }
+
+                send_command(
+                    &active_bulb.read().unwrap().location,
+                    "set_bright",
+                    &format!("{}", value),
+                );
+
+                Inhibit(false)
+            }
+        });
+
+        let temperature_slider = Scale::new(
+            Orientation::Horizontal,
+            Some(&Adjustment::new(100.0, 1700.0, 6500.0, 1.0, 0.0, 0.0)),
+        );
+
+        temperature_slider.connect_change_value({
+            let active_bulb = Arc::clone(&active_bulb);
+            move |_s, _t, value| {
+                let mut value = value.round() as i32;
+                println!("{}", value);
+                if value > 6500 {
+                    value = 6500
+                }
+
+                send_command(
+                    &active_bulb.read().unwrap().location,
+                    "set_ct_abx",
+                    &format!("{}", value),
+                );
+
+                Inhibit(false)
+            }
+        });
+
+        let brightness_label = Label::new(Some("Brightness"));
+        let temperature_label = Label::new(Some("Temperature"));
+        let spacer = Label::new(Some(""));
+
+        button_row.pack_start(&brightness_label, false, false, 0);
+        button_row.pack_start(&brightness_slider, false, false, 0);
+
+        button_row.pack_start(&temperature_label, false, false, 0);
+        button_row.pack_start(&temperature_slider, false, false, 0);
+
+        button_row.pack_start(&spacer, true, true, 5);
 
         window.add(&button_row);
         window.show_all();
