@@ -1,7 +1,7 @@
 mod bulb;
 use bulb::Bulb;
 use gtk::prelude::*;
-use gtk::{Application, ApplicationWindow, Box, Button, Orientation};
+use gtk::{Application, ApplicationWindow, Box, Button, ColorButton, Label, Orientation};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::TcpStream;
@@ -29,37 +29,52 @@ fn start_app(bulbs: Vec<Bulb>) {
 
     application.connect_activate(move |app| {
         let bulbs = Arc::new(RwLock::new(bulbs.to_owned()));
-
+        let active_bulb = Arc::new(RwLock::new(bulbs.read().unwrap()[0].clone()));
         let window = ApplicationWindow::builder()
             .application(app)
             .title("Yeelight Controller")
             .default_width(350)
-            .default_height(70)
+            .default_height(350)
             .build();
 
-        let off_button = Button::with_label("turn off");
+        let button_row = Box::new(Orientation::Vertical, 3);
+
+        let data = bulbs.read().unwrap();
+        for bulb in data.to_owned().into_iter() {
+            let active = &active_bulb.read().unwrap().location.to_owned();
+
+            let label = if &bulb.location == active {
+                format!("{}{}", &bulb.id, "(Active)")
+            } else {
+                bulb.id.to_string()
+            };
+
+            let id_button = Button::with_label(&label);
+
+            id_button.connect_clicked({
+                println!("{:?}", &bulb);
+                let active_bulb = Arc::clone(&active_bulb);
+                move |_| {
+                    *active_bulb.write().unwrap() = bulb.clone();
+                }
+            });
+            button_row.pack_start(&id_button, false, false, 2);
+        }
+        window.add(&button_row);
+
+        let off_button = Button::with_label("Off");
 
         off_button.connect_clicked({
-            let bulbs = Arc::clone(&bulbs);
-
-            move |_| {
-                let bulbs = bulbs.read().unwrap();
-                send_command(&bulbs[0].location, "set_power", "off")
-            }
+            let active_bulb = Arc::clone(&active_bulb);
+            move |_| send_command(&active_bulb.read().unwrap().location, "set_power", "off")
         });
 
-        let on_button = Button::with_label("turn on");
+        let on_button = Button::with_label("On");
 
         on_button.connect_clicked({
-            let bulbs = Arc::clone(&bulbs);
-
-            move |_| {
-                let bulbs = bulbs.read().unwrap();
-                send_command(&bulbs[0].location, "set_power", "on")
-            }
+            let active_bulb = Arc::clone(&active_bulb);
+            move |_| send_command(&active_bulb.read().unwrap().location, "set_power", "on")
         });
-
-        let button_row = Box::new(Orientation::Horizontal, 2);
 
         button_row.pack_start(&on_button, true, true, 2);
         button_row.pack_start(&off_button, true, true, 2);
