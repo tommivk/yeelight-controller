@@ -1,4 +1,4 @@
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Bulb {
     pub location: String,
     pub id: String,
