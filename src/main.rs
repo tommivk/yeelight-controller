@@ -1,7 +1,7 @@
 mod bulb;
 use bulb::Bulb;
 use gtk::prelude::*;
-use gtk::{Application, ApplicationWindow, Box, Button, Orientation};
+use gtk::{Application, ApplicationWindow, Box, Button, ColorChooserWidgetBuilder, Orientation};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::TcpStream;
@@ -79,21 +79,44 @@ fn start_app(bulbs: Vec<Bulb>) {
 
         off_button.connect_clicked({
             let active_bulb = Arc::clone(&active_bulb);
-            move |_| send_command(&active_bulb.read().unwrap().location, "set_power", "off")
+            move |_| {
+                send_command(
+                    &active_bulb.read().unwrap().location,
+                    "set_power",
+                    "\"off\"",
+                )
+            }
         });
 
         let on_button = Button::with_label("On");
 
         on_button.connect_clicked({
             let active_bulb = Arc::clone(&active_bulb);
-            move |_| send_command(&active_bulb.read().unwrap().location, "set_power", "on")
+            move |_| send_command(&active_bulb.read().unwrap().location, "set_power", "\"on\"")
         });
 
         button_row.pack_start(&on_button, true, true, 2);
         button_row.pack_start(&off_button, true, true, 2);
 
-        window.add(&button_row);
+        let color_picker = ColorChooserWidgetBuilder::new().show_editor(true).build();
+        color_picker.connect_rgba_notify(move |picker| {
+            let rgba = picker.rgba();
 
+            let red = (255.0 * rgba.red).round() as i32;
+            let green = (255.0 * rgba.green).round() as i32;
+            let blue = (255.0 * rgba.blue).round() as i32;
+
+            let color_value = (red * 65536) + (green * 256) + blue;
+
+            send_command(
+                &active_bulb.read().unwrap().location,
+                "set_rgb",
+                &format!("{}", color_value),
+            )
+        });
+        button_row.pack_start(&color_picker, true, true, 3);
+
+        window.add(&button_row);
         window.show_all();
     });
 
@@ -104,7 +127,7 @@ fn send_command(address: &str, method: &str, params: &str) {
     let mut stream = TcpStream::connect(&address).unwrap();
 
     let msg = format!(
-        "{{\"id\":{},\"method\":\"{}\",\"params\":[\"{}\"]}}\r\n",
+        "{{\"id\":{},\"method\":\"{}\",\"params\":[{}]}}\r\n",
         0, method, params
     );
 
